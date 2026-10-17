@@ -162,6 +162,9 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
     var focusMode by remember { mutableStateOf(false) }
     val settings = LocalSettings.current
     val extras = LocalPixExtras.current
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    // Portrait: the tool-options box can be collapsed; a small floating pill then brings it back.
+    val optionsHidden = !isLandscape && settings.optionsCollapsed
     val left = settings.leftHanded
     var pendingImport by remember { mutableStateOf<Imported.Image?>(null) }
     var pendingSave by remember { mutableStateOf<ExportOptions?>(null) }
@@ -313,6 +316,20 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
             if (state.precisionMode) {
                 DrawButton(state, viewport, Modifier.align(if (left) Alignment.BottomStart else Alignment.BottomEnd).safeDrawingPadding().padding(18.dp))
             }
+            if (optionsHidden) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp), color = extras.overlay, shadowElevation = 4.dp,
+                    modifier = Modifier.align(if (left) Alignment.BottomEnd else Alignment.BottomStart).safeDrawingPadding().padding(10.dp),
+                ) {
+                    Row(Modifier.padding(start = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (!left) ColorStack(state) { dialog = EditorDialog.PICKER }
+                        IconButton(onClick = { settings.optionsCollapsed = false }) {
+                            Icon(if (left) Icons.Filled.ChevronLeft else Icons.Filled.ChevronRight, "Show tool options")
+                        }
+                        if (left) { ColorStack(state) { dialog = EditorDialog.PICKER }; Spacer(Modifier.width(6.dp)) }
+                    }
+                }
+            }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).safeDrawingPadding())
         }
 
@@ -322,8 +339,12 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
         Surface(m, color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Column {
                 if (state.selection != null || (state.tool.isSelection && state.hasClipboard)) SelectionBar(state)
-                OptionsBar(state, left, collapsible = true, onOpenPicker = { dialog = EditorDialog.PICKER })
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                AnimatedVisibility(!optionsHidden, enter = expandVertically(), exit = shrinkVertically()) {
+                    Column {
+                        OptionsBar(state, left, collapsible = true, onOpenPicker = { dialog = EditorDialog.PICKER })
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
                 if (land) {
                     Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) { if (tab != null) panel() }
                 } else {
@@ -418,6 +439,20 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                 if (!left) rail()
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     canvasArea(Modifier.fillMaxSize())
+                    // While the strip is hidden its handle stays at the bottom: tap or swipe up to bring it back.
+                    if (tab == null) {
+                        Surface(
+                            onClick = { tab = lastTab },
+                            shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp), color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 3.dp, shadowElevation = 4.dp,
+                            modifier = Modifier.align(Alignment.BottomCenter).width(140.dp).height(24.dp)
+                                .pointerInput(Unit) { detectVerticalDragGestures { _, dy -> if (dy < -8f) tab = lastTab } },
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(40.dp, 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline))
+                            }
+                        }
+                    }
                     // Bottom strip: the picked tab's content, capped in height and scrollable.
                     androidx.compose.animation.AnimatedVisibility(
                         visible = tab != null,
