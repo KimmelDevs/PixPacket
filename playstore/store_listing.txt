@@ -1,0 +1,65 @@
+APP NAME (max 30)
+PixPacket
+
+SHORT DESCRIPTION (max 80)
+Pixel art & animation made for your fingers: layers, frames and GIF export.
+
+FULL DESCRIPTION (max 4000)
+PixPacket is a pixel art and animation editor built for your phone. Every tool, panel and gesture was designed for touch, so you can sketch sprites, paint tiles and animate characters comfortably anywhere.
+
+DRAW WITH YOUR FINGERS
+- One finger draws, two fingers pinch to zoom and pan
+- Two-finger tap to undo, three-finger tap to redo
+- Long-press anywhere to pick a color
+- Precision cursor: aim like a trackpad, then hold a button to draw exactly where you want
+- Full-screen mode hides everything but your art
+
+15 TOOLS
+Pencil with pixel-perfect lines, eraser, fill (contiguous or replace everywhere), line, rectangle, ellipse, color picker, lighten/darken shading, dither, spray, dithered gradient, move, rectangle select, lasso and magic wand. Mirror drawing horizontally and vertically, and pick any brush size.
+
+SELECTIONS
+Copy, cut, paste, flip, rotate, outline, fill or erase just the area you selected. Drawing tools stay inside the selection.
+
+LAYERS AND ANIMATION
+- Layers with opacity, lock, hide, solo, merge and rename
+- Frames you can add, duplicate, reorder and reverse
+- Onion skin, adjustable speed (1-30 fps) and a live animation preview
+- Tile preview to check repeating patterns
+
+COLORS AND PALETTES
+- Make as many palettes as you like, with as many colors as you like
+- Built-in palettes: PICO-8, DB16, Endesga 32, Game Boy, NES, Grayscale and more
+- Build a palette from the colors in your sprite
+- Color mixer with hue, saturation, brightness, transparency and hex codes
+
+CANVAS AND GRID
+Resize or scale the canvas, crop to a selection, trim empty borders, flip and rotate. Set your own grid: pixel lines, tile size, offset and line color.
+
+OPEN AND EXPORT
+- Export PNG, animated GIF, sprite sheets and ZIPs of PNG frames, scaled up to 32x
+- Open and save .aseprite and .piskel files, keeping layers and frames
+- Import images and GIFs, or slice a sprite sheet into frames
+- Save to your gallery, to any folder, or share straight to other apps
+
+STAY ORGANIZED
+Folders for your sprites, automatic saving, and a Recently deleted bin that keeps deleted art for 30 days.
+
+MADE FOR YOU
+Light and dark themes, accent colors, a left-handed layout, a two-thumb landscape layout and adjustable gestures.
+
+PRIVATE BY DESIGN
+No account, no ads and no tracking. PixPacket doesn't use the internet, and your art stays on your device unless you choose to share it.
+
+PixPacket is in active development. Feedback and bug reports are very welcome on GitHub.
+
+WEBSITE
+https://kimmeldevs.github.io/PixPacket/
+
+PRIVACY POLICY
+https://kimmeldevs.github.io/PixPacket/privacy-policy.html
+
+SUGGESTED CATEGORY
+Art & Design
+
+CONTENT RATING
+Answer the questionnaire: no violence, no user-to-user interaction, no data sharing. Expected: Everyone.
