@@ -446,7 +446,10 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                             shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp), color = MaterialTheme.colorScheme.surface,
                             tonalElevation = 3.dp, shadowElevation = 4.dp,
                             modifier = Modifier.align(Alignment.BottomCenter).width(140.dp).height(24.dp)
-                                .pointerInput(Unit) { detectVerticalDragGestures { _, dy -> if (dy < -8f) tab = lastTab } },
+                                .pointerInput(Unit) {
+                                    var total = 0f
+                                    detectVerticalDragGestures(onDragStart = { total = 0f }) { _, dy -> total += dy; if (total < -24f) tab = lastTab }
+                                },
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Box(Modifier.size(40.dp, 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline))
@@ -469,7 +472,11 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                                 // Grab handle: tap it or swipe down to hide the strip.
                                 Box(
                                     Modifier.fillMaxWidth().height(18.dp).clickable { tab = null }
-                                        .pointerInput(Unit) { detectVerticalDragGestures { _, dy -> if (dy > 8f) tab = null } },
+                                        .pointerInput(Unit) {
+                                            // Add up the whole drag so slow swipes count too.
+                                            var total = 0f
+                                            detectVerticalDragGestures(onDragStart = { total = 0f }) { _, dy -> total += dy; if (total > 24f) tab = null }
+                                        },
                                     contentAlignment = Alignment.Center,
                                 ) { Box(Modifier.size(40.dp, 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline)) }
                                 Column(Modifier.verticalScroll(rememberScrollState())) {
