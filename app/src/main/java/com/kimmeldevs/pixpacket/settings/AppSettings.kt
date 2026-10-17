@@ -42,6 +42,7 @@ class AppSettings(ctx: Context) {
     var leftHanded by bool("left_handed", false)
     var collapseToolsOnPick by bool("collapse_tools", false)
     var keepScreenOn by bool("keep_screen_on", true)
+    var optionsCollapsed by bool("options_collapsed", false)
 
     // New sprites
     var defaultWidth by int("default_w", 32)

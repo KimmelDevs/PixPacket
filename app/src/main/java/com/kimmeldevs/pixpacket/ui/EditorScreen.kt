@@ -5,6 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -318,7 +322,7 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
         Surface(m, color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Column {
                 if (state.selection != null || (state.tool.isSelection && state.hasClipboard)) SelectionBar(state)
-                OptionsBar(state, left, onOpenPicker = { dialog = EditorDialog.PICKER })
+                OptionsBar(state, left, collapsible = true, onOpenPicker = { dialog = EditorDialog.PICKER })
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 if (land) {
                     Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) { if (tab != null) panel() }
@@ -557,11 +561,28 @@ private fun Dock(tab: PanelTab?, state: EditorState, onTab: (PanelTab) -> Unit) 
 }
 
 @Composable
-private fun OptionsBar(state: EditorState, leftHanded: Boolean, showColors: Boolean = true, compact: Boolean = false, onOpenPicker: () -> Unit) {
+private fun OptionsBar(
+    state: EditorState, leftHanded: Boolean, showColors: Boolean = true, compact: Boolean = false,
+    collapsible: Boolean = false, onOpenPicker: () -> Unit,
+) {
     val t = state.tool
+    val settings = LocalSettings.current
+    val collapsed = collapsible && settings.optionsCollapsed
+    // Arrow next to the color stack: ‹ hides the tool options, › brings them back.
+    val toggle: @Composable () -> Unit = {
+        if (collapsible) IconButton(onClick = { settings.optionsCollapsed = !collapsed }, modifier = Modifier.size(36.dp)) {
+            Icon(
+                if (collapsed == leftHanded) Icons.Filled.ChevronLeft else Icons.Filled.ChevronRight,
+                if (collapsed) "Show tool options" else "Hide tool options",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
     Row(Modifier.fillMaxWidth().height(if (compact) 48.dp else 64.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (showColors && !leftHanded) { ColorStack(state, onOpenPicker); Spacer(Modifier.width(8.dp)) }
-        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (showColors && !leftHanded) { ColorStack(state, onOpenPicker); Spacer(Modifier.width(4.dp)); toggle() }
+        if (collapsed) Spacer(Modifier.weight(1f))
+        AnimatedVisibility(!collapsed, Modifier.weight(1f), enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (t.usesSize) {
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -591,7 +612,8 @@ private fun OptionsBar(state: EditorState, leftHanded: Boolean, showColors: Bool
             if (t == Tool.PICKER) Text("Tip: long-press works with any tool", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(8.dp))
         }
-        if (showColors && leftHanded) { Spacer(Modifier.width(8.dp)); ColorStack(state, onOpenPicker) }
+        }
+        if (showColors && leftHanded) { toggle(); Spacer(Modifier.width(4.dp)); ColorStack(state, onOpenPicker) }
     }
 }
 

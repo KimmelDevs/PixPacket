@@ -217,7 +217,8 @@ fun ColorsPanel(
     var menu by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     var editing by remember(sel) { mutableStateOf(false) }
-    var naming by remember { mutableStateOf<String?>(null) } // "new", "rename"
+    var naming by remember { mutableStateOf<String?>(null) } // "new", "new-with-color", "rename"
+    var choosing by remember { mutableStateOf(false) }
 
     fun newPalette(name: String, cols: List<Int>) {
         val list = userPalettes + UserPalette(name, cols)
@@ -263,10 +264,11 @@ fun ColorsPanel(
                 }
             }
             IconButton(onClick = {
-                val (list, idx) = addToUserPalette(userPalettes, sel, state.primary)
-                onUserPalettes(list)
-                if (selUser == null) state.message = "Added to ${list[idx].name}"
-            }) { Icon(Icons.Filled.Add, "Add current color to a palette") }
+                if (selUser != null) {
+                    val (list, _) = addToUserPalette(userPalettes, sel, state.primary)
+                    if (list === userPalettes) state.message = "That color is already here" else onUserPalettes(list)
+                } else choosing = true // presets can't change: ask where to save it
+            }) { Icon(Icons.Filled.Add, "Save current color to a palette") }
             Box {
                 IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, "Palette options") }
                 DropdownMenu(more, { more = false }) {
@@ -377,8 +379,20 @@ fun ColorsPanel(
         )
     }
 
+    if (choosing) SaveColorDialog(
+        color = state.primary, palettes = userPalettes,
+        onDismiss = { choosing = false },
+        onNew = { choosing = false; naming = "new-with-color" },
+    ) { i ->
+        choosing = false
+        val p = userPalettes[i]
+        if (state.primary !in p.colors) onUserPalettes(userPalettes.toMutableList().also { it[i] = p.copy(colors = p.colors + state.primary) })
+        onSelect(PaletteSel.User(i)) // show where it went
+    }
+
     when (naming) {
         "new" -> RenameDialog("New palette", PaletteStore.freshName(userPalettes), { naming = null }) { n -> naming = null; newPalette(n, emptyList()) }
+        "new-with-color" -> RenameDialog("New palette", PaletteStore.freshName(userPalettes), { naming = null }) { n -> naming = null; newPalette(n, listOf(state.primary)) }
         "rename" -> if (selUser != null) RenameDialog("Rename palette", userPalettes[selUser].name, { naming = null }) { n ->
             naming = null
             onUserPalettes(userPalettes.toMutableList().also { l -> l[selUser] = l[selUser].copy(name = n) })
@@ -586,4 +600,42 @@ fun RoundSwatch(color: Int, selected: Boolean, modifier: Modifier = Modifier) {
         modifier.size(if (selected) 40.dp else 32.dp).clip(CircleShape)
             .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
     ) { ColorBox(color, Modifier.matchParentSize()) }
+}
+
+/** "Save color to…": lists your palettes (with a preview) plus a new-palette option. */
+@Composable
+private fun SaveColorDialog(color: Int, palettes: List<UserPalette>, onDismiss: () -> Unit, onNew: () -> Unit, onPick: (Int) -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RoundSwatch(color, selected = false)
+                Spacer(Modifier.width(12.dp))
+                Text("Save color to…")
+            }
+        },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (palettes.isEmpty()) Text("You don't have any palettes yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                palettes.forEachIndexed { i, p ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .clickable { onPick(i) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(p.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (color in p.colors) "Already has this color" else "${p.colors.size} colors", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                            p.colors.takeLast(5).forEach { c -> Box(Modifier.size(20.dp).clip(CircleShape).border(1.dp, MaterialTheme.colorScheme.surface, CircleShape)) { ColorBox(c, Modifier.matchParentSize()) } }
+                        }
+                    }
+                }
+                androidx.compose.material3.TextButton(onClick = onNew) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(6.dp)); Text("New palette with this color") }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
