@@ -1,0 +1,64 @@
+package com.kimmeldevs.pixpacket.model
+
+/** A single layer. Each cel is an ARGB pixel array of size width*height, one per frame. */
+class Layer(
+    var name: String,
+    val cels: MutableList<IntArray>,
+    var visible: Boolean = true,
+    var locked: Boolean = false,
+    var opacity: Float = 1f,
+) {
+    fun deepCopy(): Layer = Layer(name, cels.map { it.copyOf() }.toMutableList(), visible, locked, opacity)
+}
+
+/** The whole document: a stack of layers sharing the same frame count. Index 0 is the bottom layer. */
+class Sprite(
+    var width: Int,
+    var height: Int,
+    val layers: MutableList<Layer>,
+    var fps: Int = 8,
+) {
+    val frameCount: Int get() = layers.firstOrNull()?.cels?.size ?: 0
+
+    fun deepCopy(): Sprite = Sprite(width, height, layers.map { it.deepCopy() }.toMutableList(), fps)
+
+    fun newCel() = IntArray(width * height)
+
+    /** Composites every visible layer of [frame] into [out] (source-over blending). */
+    fun composite(frame: Int, out: IntArray = IntArray(width * height), onlyVisible: Boolean = true): IntArray {
+        out.fill(0)
+        for (layer in layers) {
+            if (onlyVisible && !layer.visible) continue
+            val cel = layer.cels[frame]
+            val op = layer.opacity
+            for (i in out.indices) {
+                val src = cel[i]
+                if (src == 0) continue
+                out[i] = blend(out[i], src, op)
+            }
+        }
+        return out
+    }
+
+    companion object {
+        fun blank(width: Int, height: Int, background: Int = 0): Sprite {
+            val cel = IntArray(width * height) { background }
+            return Sprite(width, height, mutableListOf(Layer("Layer 1", mutableListOf(cel))))
+        }
+
+        /** Source-over blend of [src] (scaled by [opacity]) onto [dst]. */
+        fun blend(dst: Int, src: Int, opacity: Float = 1f): Int {
+            val sa = ((src ushr 24) * opacity).toInt()
+            if (sa <= 0) return dst
+            val da = dst ushr 24
+            if (sa >= 255 || da == 0) return (sa shl 24) or (src and 0xFFFFFF)
+            val outA = sa + da * (255 - sa) / 255
+            if (outA == 0) return 0
+            fun ch(s: Int, d: Int) = (s * sa + d * da * (255 - sa) / 255) / outA
+            val r = ch((src shr 16) and 0xFF, (dst shr 16) and 0xFF)
+            val g = ch((src shr 8) and 0xFF, (dst shr 8) and 0xFF)
+            val b = ch(src and 0xFF, dst and 0xFF)
+            return (outA shl 24) or (r shl 16) or (g shl 8) or b
+        }
+    }
+}
