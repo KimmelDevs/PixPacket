@@ -55,11 +55,25 @@ class Viewport {
     var cursor by mutableStateOf(Offset(0f, 0f))
     private var fittedFor = -1
 
+    /** Screen space covered by floating panels on each side; fitting centers the sprite in what's left. */
+    private var insetStart = 0f
+    private var insetEnd = 0f
+    private var insetBottom = 0f
+
+    /** Updates the covered edges and slides the canvas so it stays centered in the visible area. */
+    fun setInsets(start: Float, end: Float, bottom: Float = insetBottom) {
+        val shift = Offset(((start - insetStart) - (end - insetEnd)) / 2f, -(bottom - insetBottom) / 2f)
+        insetStart = start; insetEnd = end; insetBottom = bottom
+        if (scale > 0f) offset += shift
+    }
+
     fun fit(w: Int, h: Int) {
         if (size.width == 0) return
-        val raw = min(size.width * 0.92f / w, size.height * 0.88f / h)
+        val visibleW = (size.width - insetStart - insetEnd).coerceAtLeast(size.width * 0.3f)
+        val visibleH = (size.height - insetBottom).coerceAtLeast(size.height * 0.3f)
+        val raw = min(visibleW * 0.92f / w, visibleH * 0.9f / h)
         scale = if (raw >= 1f) floor(raw) else raw
-        offset = Offset((size.width - w * scale) / 2f, (size.height - h * scale) / 2f)
+        offset = Offset(insetStart + (visibleW - w * scale) / 2f, (visibleH - h * scale) / 2f)
         cursor = Offset(w / 2f, h / 2f)
     }
 

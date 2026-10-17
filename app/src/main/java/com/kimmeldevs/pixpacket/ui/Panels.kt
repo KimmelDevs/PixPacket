@@ -226,7 +226,7 @@ fun ColorsPanel(
 
     Column(Modifier.padding(vertical = 6.dp)) {
         Row(Modifier.padding(start = 10.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f, fill = false)) {
+            Box(Modifier.weight(1f)) {
                 FilterChip(
                     selected = true, onClick = { menu = true },
                     label = { Text("$title  ▾", maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -254,7 +254,6 @@ fun ColorsPanel(
                     DropdownMenuItem(text = { Text("Recent") }, onClick = { onSelect(PaletteSel.Recent); menu = false })
                 }
             }
-            Spacer(Modifier.weight(1f))
             if (selUser != null) {
                 IconButton(onClick = { editing = !editing }) {
                     Icon(
