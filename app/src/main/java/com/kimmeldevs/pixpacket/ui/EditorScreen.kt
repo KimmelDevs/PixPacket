@@ -5,6 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.widthIn
@@ -150,6 +154,8 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
     var userPalettes by remember { mutableStateOf(PaletteStore.load(ctx)) }
     fun setUserPalettes(l: List<UserPalette>) { userPalettes = l; PaletteStore.save(ctx, l) }
     var menuOpen by remember { mutableStateOf(false) }
+    // Full-screen: hide every bar and show only the canvas plus a small floating pill.
+    var focusMode by remember { mutableStateOf(false) }
     val settings = LocalSettings.current
     val extras = LocalPixExtras.current
     val left = settings.leftHanded
@@ -265,6 +271,7 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
             }
             IconButton(onClick = { state.undo() }, enabled = state.canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
             IconButton(onClick = { state.redo() }, enabled = state.canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, "Redo") }
+            IconButton(onClick = { focusMode = true }) { Icon(Icons.Filled.Fullscreen, "Full screen") }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, "More") }
                 EditorMenu(
@@ -285,13 +292,13 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
         Box(m) {
             PixelCanvas(state, viewport)
             if (state.showPreview && state.frameCount > 1) {
-                AnimationPreview(state, Modifier.align(if (left) Alignment.TopEnd else Alignment.TopStart).padding(10.dp))
+                AnimationPreview(state, Modifier.align(if (left) Alignment.TopEnd else Alignment.TopStart).safeDrawingPadding().padding(10.dp))
             }
             Surface(
                 onClick = { viewport.fitRequest++ },
                 shape = RoundedCornerShape(16.dp),
                 color = extras.overlay,
-                modifier = Modifier.align(if (left) Alignment.TopStart else Alignment.TopEnd).padding(10.dp),
+                modifier = Modifier.align(if (left) Alignment.TopStart else Alignment.TopEnd).safeDrawingPadding().padding(10.dp),
             ) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.ZoomOutMap, null, Modifier.size(14.dp))
@@ -300,9 +307,9 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                 }
             }
             if (state.precisionMode) {
-                DrawButton(state, viewport, Modifier.align(if (left) Alignment.BottomStart else Alignment.BottomEnd).padding(18.dp))
+                DrawButton(state, viewport, Modifier.align(if (left) Alignment.BottomStart else Alignment.BottomEnd).safeDrawingPadding().padding(18.dp))
             }
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).safeDrawingPadding())
         }
 
     }
@@ -331,7 +338,23 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
     // so the canvas never jumps. Left-handed mode swaps the rails.
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     LaunchedEffect(landscape) { viewport.fitRequest++ }
-    if (landscape) {
+    LaunchedEffect(focusMode) { viewport.fitRequest++ }
+    if (focusMode) {
+        BackHandler { focusMode = false }
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            canvasArea(Modifier.fillMaxSize())
+            Surface(
+                shape = RoundedCornerShape(24.dp), color = extras.overlay, shadowElevation = 4.dp,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().displayCutoutPadding().padding(top = 8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { state.undo() }, enabled = state.canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
+                    IconButton(onClick = { state.redo() }, enabled = state.canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, "Redo") }
+                    IconButton(onClick = { focusMode = false }) { Icon(Icons.Filled.FullscreenExit, "Exit full screen") }
+                }
+            }
+        }
+    } else if (landscape) {
         // Landscape: slim top bar (back, name, undo/redo, menu), a tab rail on the side, and a bottom strip
         // that shows whichever tab is picked (tools, colors, frames or layers). The canvas always fits above
         // the strip. Tapping the open tab hides the strip. Left-handed mode moves the rail to the right.
@@ -372,6 +395,7 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                 }
                 IconButton(onClick = { state.undo() }, enabled = state.canUndo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo", Modifier.size(22.dp)) }
                 IconButton(onClick = { state.redo() }, enabled = state.canRedo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Filled.Redo, "Redo", Modifier.size(22.dp)) }
+                IconButton(onClick = { focusMode = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.Fullscreen, "Full screen", Modifier.size(22.dp)) }
                 IconButton(onClick = { viewport.fitRequest++ }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.ZoomOutMap, "Fit to screen", Modifier.size(20.dp)) }
                 Box {
                     IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.MoreVert, "More", Modifier.size(22.dp)) }
@@ -402,14 +426,22 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), color = MaterialTheme.colorScheme.surface,
                             tonalElevation = 3.dp, shadowElevation = 6.dp,
                         ) {
-                            Column(Modifier.verticalScroll(rememberScrollState())) {
-                                if (state.selection != null || (state.tool.isSelection && state.hasClipboard)) SelectionBar(state)
-                                when (tab ?: lastTab) {
-                                    PanelTab.TOOLS -> {
-                                        OptionsBar(state, left, showColors = false, compact = true, onOpenPicker = { dialog = EditorDialog.PICKER })
-                                        ToolStrip(state)
+                            Column {
+                                // Grab handle: tap it or swipe down to hide the strip.
+                                Box(
+                                    Modifier.fillMaxWidth().height(18.dp).clickable { tab = null }
+                                        .pointerInput(Unit) { detectVerticalDragGestures { _, dy -> if (dy > 8f) tab = null } },
+                                    contentAlignment = Alignment.Center,
+                                ) { Box(Modifier.size(40.dp, 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline)) }
+                                Column(Modifier.verticalScroll(rememberScrollState())) {
+                                    if (state.selection != null || (state.tool.isSelection && state.hasClipboard)) SelectionBar(state)
+                                    when (tab ?: lastTab) {
+                                        PanelTab.TOOLS -> {
+                                            OptionsBar(state, left, showColors = false, compact = true, onOpenPicker = { dialog = EditorDialog.PICKER })
+                                            ToolStrip(state)
+                                        }
+                                        else -> panel()
                                     }
-                                    else -> panel()
                                 }
                             }
                         }
