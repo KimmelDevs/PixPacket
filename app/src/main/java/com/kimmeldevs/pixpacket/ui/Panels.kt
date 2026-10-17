@@ -23,9 +23,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -61,6 +61,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -204,38 +206,69 @@ fun ColorsPanel(
             }) { Icon(Icons.Filled.Add, "Add current color to My palette") }
             FilterChip(selected = false, onClick = onOpenPicker, label = { Text("Mix") })
         }
-        if (colors.isEmpty()) {
-            Box(Modifier.fillMaxWidth().height(88.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    if (isCustom) "Tap + to save the current color here" else "Nothing here yet",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp,
-                )
+        // Pages of 16 (2 rows x 8), swipe sideways for more. "My palette" ends with an add slot.
+        val cells: List<Int?> = if (isCustom) colors + listOf<Int?>(null) else colors
+        val pages = cells.chunked(16)
+        val pager = key(paletteIndex) { rememberPagerState { pages.size.coerceAtLeast(1) } }
+        // Jump to the last page when a color is added so the new swatch is visible.
+        var lastCount by remember(paletteIndex) { mutableIntStateOf(cells.size) }
+        LaunchedEffect(cells.size) {
+            if (cells.size > lastCount) pager.animateScrollToPage(pages.size - 1)
+            lastCount = cells.size
+        }
+        if (cells.isEmpty()) {
+            Box(Modifier.fillMaxWidth().height(96.dp), contentAlignment = Alignment.Center) {
+                Text("Nothing here yet", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
             }
         } else {
-            LazyHorizontalGrid(
-                rows = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxWidth().height(96.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(colors) { c ->
-                    Swatch(
-                        c, selected = c == state.primary,
-                        modifier = Modifier.combinedClickable(
-                            onClick = { state.primary = c },
-                            onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                state.secondary = c; state.message = "Set as secondary color"
-                            },
-                        ),
-                        size = 40,
-                    )
+            HorizontalPager(pager, Modifier.fillMaxWidth().height(100.dp)) { page ->
+                Column(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalArrangement = Arrangement.SpaceEvenly) {
+                    pages.getOrElse(page) { emptyList() }.chunked(8).let { rows -> if (rows.size == 1) rows + listOf(emptyList()) else rows }.forEach { row ->
+                        Row(Modifier.fillMaxWidth()) {
+                            row.forEach { c ->
+                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    if (c == null) {
+                                        Box(
+                                            Modifier.size(38.dp).clip(CircleShape)
+                                                .border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                                .clickable {
+                                                    if (state.primary !in customPalette) onCustomChange(customPalette + state.primary)
+                                                    else state.message = "That color is already in My palette"
+                                                },
+                                            contentAlignment = Alignment.Center,
+                                        ) { Icon(Icons.Filled.Add, "Add current color", Modifier.size(20.dp)) }
+                                    } else {
+                                        RoundSwatch(
+                                            c, selected = c == state.primary,
+                                            modifier = Modifier.combinedClickable(
+                                                onClick = { state.primary = c },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    state.secondary = c; state.message = "Set as secondary color"
+                                                },
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                            repeat(8 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
+            if (pages.size > 1) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.Center) {
+                    repeat(pages.size) { i ->
+                        Box(
+                            Modifier.padding(horizontal = 3.dp).size(if (i == pager.currentPage) 8.dp else 6.dp).clip(CircleShape)
+                                .background(if (i == pager.currentPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                        )
+                    }
                 }
             }
         }
         Text(
-            "Tap = primary  ·  Long-press = secondary",
+            (if (pages.size > 1) "Swipe for more  ·  " else "") + "Tap = primary  ·  Long-press = secondary",
             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 14.dp),
         )
@@ -244,6 +277,7 @@ fun ColorsPanel(
 
 @Composable
 fun FramesPanel(state: EditorState) {
+    state.version // re-read frame list after add/delete/move
     val listState = rememberLazyListState()
     LaunchedEffect(state.currentFrame) { listState.animateScrollToItem(state.currentFrame.coerceAtLeast(0)) }
     Column(Modifier.padding(vertical = 6.dp)) {
@@ -373,4 +407,13 @@ fun ColorStack(state: EditorState, onOpenPicker: () -> Unit) {
             modifier = Modifier.align(Alignment.BottomStart).size(18.dp).clickable { state.swapColors() },
         ) { Icon(Icons.Filled.SwapVert, "Swap colors", Modifier.padding(2.dp)) }
     }
+}
+
+/** Circular palette swatch, like the reference app; a ring marks the current color. */
+@Composable
+fun RoundSwatch(color: Int, selected: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(if (selected) 40.dp else 32.dp).clip(CircleShape)
+            .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
+    ) { ColorBox(color, Modifier.matchParentSize()) }
 }

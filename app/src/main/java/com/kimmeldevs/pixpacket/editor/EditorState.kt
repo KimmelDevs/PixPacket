@@ -81,10 +81,11 @@ class EditorState(val projectId: String, initial: Sprite, name: String) {
     /** One-shot messages for the UI (snackbar). */
     var message by mutableStateOf<String?>(null)
 
-    val width get() = sprite.width
-    val height get() = sprite.height
-    val frameCount get() = sprite.frameCount
-    val layer: Layer get() = sprite.layers[currentLayer]
+    // Reading `version` makes Compose re-read these after in-place structural edits.
+    val width get() = version.let { sprite.width }
+    val height get() = version.let { sprite.height }
+    val frameCount get() = version.let { sprite.frameCount }
+    val layer: Layer get() = version.let { sprite.layers[currentLayer] }
     val cel: IntArray get() = layer.cels[currentFrame]
 
     private fun changed() { version++; dirty = true }
