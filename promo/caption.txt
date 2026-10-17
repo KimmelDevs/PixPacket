@@ -1,0 +1,15 @@
+🐦 Looking for beta testers for PixPacket!
+
+PixPacket is a pixel art & animation app I'm building for Android, designed to be easy to use with your fingers.
+
+What you can do:
+✏️ 15 tools: pencil, fill, shapes, dither, gradient, selections & more
+🎞️ Layers, frames, onion skin and a live animation preview
+🎨 Unlimited custom palettes + PICO-8, NES, Endesga 32 and more
+📁 Folders, autosave and a Recently deleted bin
+📤 Export GIF, PNG, sprite sheets, .aseprite and .piskel
+🌗 Light & dark mode, landscape layout, left-handed mode
+
+Want early access? Comment or DM me the email you use on Google Play and I'll add you to the closed test. All feedback (and bug reports!) is welcome 🙏
+
+#pixelart #pixelartapp #gamedev #indiedev #android #betatesters
