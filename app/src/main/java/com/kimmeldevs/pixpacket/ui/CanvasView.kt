@@ -64,10 +64,20 @@ class Viewport {
     fun setInsets(start: Float, end: Float, bottom: Float = insetBottom) {
         val shift = Offset(((start - insetStart) - (end - insetEnd)) / 2f, -(bottom - insetBottom) / 2f)
         insetStart = start; insetEnd = end; insetBottom = bottom
-        if (scale > 0f) offset += shift
+        if (scale > 0f) {
+            offset += shift
+            // If the visible area shrank so the sprite no longer fits, fit it again.
+            val visibleH = size.height - insetBottom
+            val visibleW = size.width - insetStart - insetEnd
+            if (spriteW > 0 && (spriteH * scale > visibleH || spriteW * scale > visibleW)) fit(spriteW, spriteH)
+        }
     }
 
+    private var spriteW = 0
+    private var spriteH = 0
+
     fun fit(w: Int, h: Int) {
+        spriteW = w; spriteH = h
         if (size.width == 0) return
         val visibleW = (size.width - insetStart - insetEnd).coerceAtLeast(size.width * 0.3f)
         val visibleH = (size.height - insetBottom).coerceAtLeast(size.height * 0.3f)
@@ -79,6 +89,7 @@ class Viewport {
 
     fun ensureFitted(w: Int, h: Int) {
         val key = fitRequest * 1_000_003 + w * 1009 + h
+        spriteW = w; spriteH = h
         if (fittedFor != key && size.width > 0) { fittedFor = key; fit(w, h) }
     }
 

@@ -5,6 +5,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
@@ -330,102 +332,91 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     LaunchedEffect(landscape) { viewport.fitRequest++ }
     if (landscape) {
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val panelPx = with(density) { 340.dp.toPx() }
-        val stripPx = with(density) { 112.dp.toPx() }
-        LaunchedEffect(Unit) { if (tab == PanelTab.TOOLS) tab = null }
-        val panelOpen = tab != null && tab != PanelTab.TOOLS
-        LaunchedEffect(panelOpen, left) {
-            viewport.setInsets(if (panelOpen && !left) panelPx else 0f, if (panelOpen && left) panelPx else 0f, stripPx)
-        }
+        // Landscape: slim top bar (back, name, undo/redo, menu), a tab rail on the side, and a bottom strip
+        // that shows whichever tab is picked (tools, colors, frames or layers). The canvas always fits above
+        // the strip. Tapping the open tab hides the strip. Left-handed mode moves the rail to the right.
+        var stripPx by remember { mutableIntStateOf(0) }
+        LaunchedEffect(stripPx, tab) { viewport.setInsets(0f, 0f, if (tab != null) stripPx.toFloat() else 0f) }
         DisposableEffect(Unit) { onDispose { viewport.setInsets(0f, 0f, 0f) } }
         val onTab: (PanelTab) -> Unit = { t ->
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             tab = if (tab == t) null else t
         }
-        val tabsRail: @Composable () -> Unit = {
+        val rail: @Composable () -> Unit = {
             Surface(Modifier.width(76.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-                Column(Modifier.fillMaxHeight().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = { save(); onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to gallery") }
-                    Spacer(Modifier.weight(1f))
-                    PanelTab.entries.filter { it != PanelTab.TOOLS }.forEach { t -> RailTab(t, tab == t, state) { onTab(t) } }
-                    Spacer(Modifier.weight(1f))
+                Column(
+                    Modifier.fillMaxHeight().padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        PanelTab.entries.forEach { t -> RailTab(t, tab == t, state) { onTab(t) } }
+                    }
                     ColorStack(state) { dialog = EditorDialog.PICKER }
                 }
             }
         }
-        val actionsRail: @Composable () -> Unit = {
-            Surface(Modifier.width(76.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-                Column(Modifier.fillMaxHeight().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, "More") }
-                        EditorMenu(
-                            state, expanded = menuOpen, onDismiss = { menuOpen = false },
-                            onResize = { dialog = EditorDialog.RESIZE },
-                            onExport = { dialog = EditorDialog.EXPORT },
-                            onImport = { importLauncher.launch(arrayOf("*/*")) },
-                            onGrid = { dialog = EditorDialog.GRID },
-                            onFit = { viewport.fitRequest++ },
-                            onHelp = { dialog = EditorDialog.HELP },
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    RailBigButton(Icons.AutoMirrored.Filled.Undo, "Undo", state.canUndo) { state.undo() }
-                    Spacer(Modifier.height(14.dp))
-                    RailBigButton(Icons.AutoMirrored.Filled.Redo, "Redo", state.canRedo) { state.redo() }
-                    Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { viewport.fitRequest++ }) { Icon(Icons.Filled.ZoomOutMap, "Fit to screen") }
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().displayCutoutPadding()) {
+            // Slim top bar.
+            Row(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { save(); onBack() }, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to gallery", Modifier.size(22.dp)) }
+                Row(
+                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable { dialog = EditorDialog.RENAME_SPRITE }.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(state.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "${state.width}×${state.height} · frame ${state.currentFrame + 1}/${state.frameCount} · ${state.layer.name}",
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { state.undo() }, enabled = state.canUndo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo", Modifier.size(22.dp)) }
+                IconButton(onClick = { state.redo() }, enabled = state.canRedo, modifier = Modifier.size(40.dp)) { Icon(Icons.AutoMirrored.Filled.Redo, "Redo", Modifier.size(22.dp)) }
+                IconButton(onClick = { viewport.fitRequest++ }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.ZoomOutMap, "Fit to screen", Modifier.size(20.dp)) }
+                Box {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) { Icon(Icons.Filled.MoreVert, "More", Modifier.size(22.dp)) }
+                    EditorMenu(
+                        state, expanded = menuOpen, onDismiss = { menuOpen = false },
+                        onResize = { dialog = EditorDialog.RESIZE },
+                        onExport = { dialog = EditorDialog.EXPORT },
+                        onImport = { importLauncher.launch(arrayOf("*/*")) },
+                        onGrid = { dialog = EditorDialog.GRID },
+                        onFit = { viewport.fitRequest++ },
+                        onHelp = { dialog = EditorDialog.HELP },
+                    )
                 }
             }
-        }
-        Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().displayCutoutPadding()) {
-            if (left) actionsRail() else tabsRail()
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                canvasArea(Modifier.fillMaxSize())
-                // Tools live in a scrollable strip along the bottom, with the tool's options just above.
-                Surface(
-                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 3.dp, shadowElevation = 6.dp,
-                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .padding(start = if (panelOpen && !left) 340.dp else 0.dp, end = if (panelOpen && left) 340.dp else 0.dp),
-                ) {
-                    Column {
-                        if (state.selection != null || (state.tool.isSelection && state.hasClipboard)) SelectionBar(state)
-                        OptionsBar(state, left, showColors = false, compact = true, onOpenPicker = { dialog = EditorDialog.PICKER })
-                        ToolStrip(state)
-                    }
-                }
-                // The open panel floats beside the rail.
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = panelOpen,
-                    enter = slideInHorizontally { if (left) it else -it } + fadeIn(),
-                    exit = slideOutHorizontally { if (left) it else -it } + fadeOut(),
-                    modifier = Modifier.align(if (left) Alignment.CenterEnd else Alignment.CenterStart),
-                ) {
-                    Surface(
-                        Modifier.width(340.dp).fillMaxHeight().padding(8.dp), shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shadowElevation = 8.dp,
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                if (!left) rail()
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    canvasArea(Modifier.fillMaxSize())
+                    // Bottom strip: the picked tab's content, capped in height and scrollable.
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = tab != null,
+                        enter = androidx.compose.animation.slideInVertically { it } + fadeIn(),
+                        exit = androidx.compose.animation.slideOutVertically { it } + fadeOut(),
+                        modifier = Modifier.align(Alignment.BottomCenter),
                     ) {
-                        Column {
-                            // Sprite name + info (tap to rename) lives here so nothing covers the canvas.
-                            Row(
-                                Modifier.fillMaxWidth().clickable { dialog = EditorDialog.RENAME_SPRITE }.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(state.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "${state.width}×${state.height} · ${state.currentFrame + 1}/${state.frameCount} · ${state.layer.name}",
-                                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                )
+                        Surface(
+                            Modifier.fillMaxWidth().heightIn(max = 176.dp).onSizeChanged { stripPx = it.height },
+                            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 3.dp, shadowElevation = 6.dp,
+                        ) {
+                            Column(Modifier.verticalScroll(rememberScrollState())) {
+                                if (state.selection != null || (state.tool.isSelection && state.hasClipboard)) SelectionBar(state)
+                                when (tab ?: lastTab) {
+                                    PanelTab.TOOLS -> {
+                                        OptionsBar(state, left, showColors = false, compact = true, onOpenPicker = { dialog = EditorDialog.PICKER })
+                                        ToolStrip(state)
+                                    }
+                                    else -> panel()
+                                }
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                            Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) { panel() }
                         }
                     }
                 }
+                if (left) rail()
             }
-            if (left) tabsRail() else actionsRail()
         }
     } else {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding()) {
@@ -706,19 +697,6 @@ private fun RailTab(t: PanelTab, selected: Boolean, state: EditorState, onClick:
             PanelTab.LAYERS -> Icon(Icons.Filled.Layers, t.label, tint = fg)
         }
         Text(if (t == PanelTab.TOOLS) state.tool.label else t.label, fontSize = 10.sp, maxLines = 1, color = fg)
-    }
-}
-
-/** Large, thumb-sized round button (undo/redo on the landscape rail). */
-@Composable
-private fun RailBigButton(icon: ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick, enabled = enabled, shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.size(56.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, desc, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.35f))
-        }
     }
 }
 
