@@ -3,7 +3,6 @@ package com.kimmeldevs.pixpacket.ui
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -48,6 +47,9 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Help
@@ -59,6 +61,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -89,6 +92,14 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.verticalScroll
+import com.kimmeldevs.pixpacket.io.PaletteStore
+import com.kimmeldevs.pixpacket.io.UserPalette
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -100,7 +111,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kimmeldevs.pixpacket.editor.EditorState
 import com.kimmeldevs.pixpacket.editor.Tool
+import com.kimmeldevs.pixpacket.io.ExportOptions
 import com.kimmeldevs.pixpacket.io.Exporter
+import com.kimmeldevs.pixpacket.io.Imported
+import com.kimmeldevs.pixpacket.io.Importer
+import com.kimmeldevs.pixpacket.io.SheetFormat
+import com.kimmeldevs.pixpacket.settings.LocalSettings
+import com.kimmeldevs.pixpacket.ui.theme.LocalPixExtras
 import com.kimmeldevs.pixpacket.io.Prefs
 import com.kimmeldevs.pixpacket.io.ProjectStore
 import kotlinx.coroutines.Dispatchers
@@ -108,7 +125,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class EditorDialog { NONE, RESIZE, EXPORT, RENAME_SPRITE, RENAME_LAYER, HELP, PICKER }
+private enum class EditorDialog { NONE, RESIZE, EXPORT, RENAME_SPRITE, RENAME_LAYER, HELP, PICKER, GRID }
 
 @Composable
 fun EditorScreen(state: EditorState, onBack: () -> Unit) {
@@ -120,9 +137,22 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
     var tab by remember { mutableStateOf<PanelTab?>(PanelTab.TOOLS) }
     var dialog by remember { mutableStateOf(EditorDialog.NONE) }
     var renameLayerIndex by remember { mutableIntStateOf(0) }
-    var paletteIndex by remember { mutableIntStateOf(0) }
-    var customPalette by remember { mutableStateOf(Prefs.customPalette(ctx)) }
+    var paletteSel by remember { mutableStateOf<PaletteSel>(PaletteSel.Preset(0)) }
+    var userPalettes by remember { mutableStateOf(PaletteStore.load(ctx)) }
+    fun setUserPalettes(l: List<UserPalette>) { userPalettes = l; PaletteStore.save(ctx, l) }
     var menuOpen by remember { mutableStateOf(false) }
+    val settings = LocalSettings.current
+    val extras = LocalPixExtras.current
+    val left = settings.leftHanded
+    var pendingImport by remember { mutableStateOf<Imported.Image?>(null) }
+    var pendingSave by remember { mutableStateOf<ExportOptions?>(null) }
+
+    // Keep the display awake while drawing, if enabled.
+    val view = LocalView.current
+    DisposableEffect(settings.keepScreenOn) {
+        view.keepScreenOn = settings.keepScreenOn
+        onDispose { view.keepScreenOn = false }
+    }
 
     fun save() {
         if (!state.dirty) return
@@ -169,16 +199,52 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
     }
 
     // First-run tips
-    LaunchedEffect(Unit) { if (!Prefs.seenTips(ctx)) { dialog = EditorDialog.HELP; Prefs.setSeenTips(ctx) } }
+    LaunchedEffect(Unit) { if (settings.showTips) { dialog = EditorDialog.HELP; settings.showTips = false } }
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
+    // Import any supported file into this sprite as a new layer (animations fill consecutive frames).
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) scope.launch {
-            val px = withContext(Dispatchers.Default) { runCatching { Exporter.importImage(ctx, uri, state.width, state.height) }.getOrNull() }
-            if (px == null) state.message = "Couldn't read that image" else { state.importAsLayer(px, "Imported"); state.message = "Imported as a new layer" }
+            val r = withContext(Dispatchers.IO) { runCatching { Importer.open(ctx, uri) } }
+            r.onSuccess { imp ->
+                when (imp) {
+                    is Imported.Image -> pendingImport = imp
+                    is Imported.Document -> {
+                        val d = imp.sprite
+                        state.importLayerFrames(List(d.frameCount) { d.composite(it) }, d.width, d.height, imp.name)
+                        state.message = "Imported ${d.frameCount} frame(s) as a new layer"
+                    }
+                }
+            }.onFailure { state.message = "Couldn't open file: ${it.message}" }
         }
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding()) {
+    // "Save to Files": the system picker decides where the file goes.
+    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri: Uri? ->
+        val opts = pendingSave
+        pendingSave = null
+        if (uri != null && opts != null) {
+            val snapshot = state.sprite.deepCopy(); val name = state.name
+            scope.launch {
+                withContext(Dispatchers.IO) { runCatching { Exporter.saveToUri(ctx, uri, snapshot, name, opts) } }
+                    .onSuccess { state.message = "Saved ${Exporter.fileName(name, opts.kind)}" }
+                    .onFailure { state.message = "Export failed: ${it.message}" }
+            }
+        }
+    }
+
+    val panel: @Composable () -> Unit = {
+                    when (tab) {
+                        PanelTab.TOOLS -> ToolsPanel(state, onPicked = { same -> if (same || settings.collapseToolsOnPick) tab = null })
+                        PanelTab.COLORS -> ColorsPanel(
+                            state, paletteSel, { paletteSel = it }, userPalettes, { setUserPalettes(it) },
+                            onOpenPicker = { dialog = EditorDialog.PICKER },
+                        )
+                        PanelTab.FRAMES -> FramesPanel(state)
+                        PanelTab.LAYERS -> LayersPanel(state, onRename = { renameLayerIndex = it; dialog = EditorDialog.RENAME_LAYER })
+                        null -> Spacer(Modifier.height(1.dp))
+                    }
+    }
+    val topBar: @Composable () -> Unit = {
         // ── Top bar ──
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { save(); onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to gallery") }
@@ -197,24 +263,27 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                     state, expanded = menuOpen, onDismiss = { menuOpen = false },
                     onResize = { dialog = EditorDialog.RESIZE },
                     onExport = { dialog = EditorDialog.EXPORT },
-                    onImport = { importLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onImport = { importLauncher.launch(arrayOf("*/*")) },
+                    onGrid = { dialog = EditorDialog.GRID },
                     onFit = { viewport.fitRequest++ },
                     onHelp = { dialog = EditorDialog.HELP },
                 )
             }
         }
 
+    }
+    val canvasArea: @Composable (Modifier) -> Unit = { m ->
         // ── Canvas ──
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(m) {
             PixelCanvas(state, viewport)
             if (state.showPreview && state.frameCount > 1) {
-                AnimationPreview(state, Modifier.align(Alignment.TopStart).padding(10.dp))
+                AnimationPreview(state, Modifier.align(if (left) Alignment.TopEnd else Alignment.TopStart).padding(10.dp))
             }
             Surface(
                 onClick = { viewport.fitRequest++ },
                 shape = RoundedCornerShape(16.dp),
-                color = Color(0xCC22212B),
-                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
+                color = extras.overlay,
+                modifier = Modifier.align(if (left) Alignment.TopStart else Alignment.TopEnd).padding(10.dp),
             ) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.ZoomOutMap, null, Modifier.size(14.dp))
@@ -223,29 +292,23 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
                 }
             }
             if (state.precisionMode) {
-                DrawButton(state, viewport, Modifier.align(Alignment.BottomEnd).padding(18.dp))
+                DrawButton(state, viewport, Modifier.align(if (left) Alignment.BottomStart else Alignment.BottomEnd).padding(18.dp))
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
 
+    }
+    val controlsArea: @Composable (Modifier, Boolean) -> Unit = { m, land ->
         // ── Contextual bars ──
-        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+        Surface(m, color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Column {
                 if (state.selection != null || (state.tool.isSelection && state.hasClipboard)) SelectionBar(state)
-                OptionsBar(state, onOpenPicker = { dialog = EditorDialog.PICKER })
+                OptionsBar(state, left, onOpenPicker = { dialog = EditorDialog.PICKER })
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                AnimatedVisibility(tab != null, enter = expandVertically(), exit = shrinkVertically()) {
-                    when (tab) {
-                        PanelTab.TOOLS -> ToolsPanel(state, onPicked = { tab = null })
-                        PanelTab.COLORS -> ColorsPanel(
-                            state, paletteIndex, { paletteIndex = it }, customPalette,
-                            { customPalette = it; Prefs.setCustomPalette(ctx, it) },
-                            onOpenPicker = { dialog = EditorDialog.PICKER },
-                        )
-                        PanelTab.FRAMES -> FramesPanel(state)
-                        PanelTab.LAYERS -> LayersPanel(state, onRename = { renameLayerIndex = it; dialog = EditorDialog.RENAME_LAYER })
-                        null -> Spacer(Modifier.height(1.dp))
-                    }
+                if (land) {
+                    Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) { if (tab != null) panel() }
+                } else {
+                    AnimatedVisibility(tab != null, enter = expandVertically(), exit = shrinkVertically()) { panel() }
                 }
                 Dock(tab, state) { t ->
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -255,15 +318,37 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
         }
     }
 
+    // Landscape: canvas on one side, tools in a side column (on the left for left-handed users).
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    LaunchedEffect(landscape) { viewport.fitRequest++ }
+    if (landscape) {
+        Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding().displayCutoutPadding()) {
+            if (left) controlsArea(Modifier.width(360.dp).fillMaxHeight(), true)
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                topBar()
+                canvasArea(Modifier.weight(1f).fillMaxWidth())
+            }
+            if (!left) controlsArea(Modifier.width(360.dp).fillMaxHeight(), true)
+        }
+        LaunchedEffect(Unit) { if (tab == null) tab = PanelTab.TOOLS }
+    } else {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding()) {
+            topBar()
+            canvasArea(Modifier.weight(1f).fillMaxWidth())
+            controlsArea(Modifier, false)
+        }
+    }
+
     when (dialog) {
         EditorDialog.PICKER -> ColorPickerSheet(
             initial = state.primary, recent = state.recentColors.toList(),
             onDismiss = { dialog = EditorDialog.NONE },
             onPick = { state.primary = it; state.addRecent(it); dialog = EditorDialog.NONE },
             onAddToPalette = {
-                if (it !in customPalette) { customPalette = customPalette + it; Prefs.setCustomPalette(ctx, customPalette) }
-                state.primary = it; state.message = "Added to My palette"
-                paletteIndex = com.kimmeldevs.pixpacket.model.Palettes.presets.size
+                val (list, idx) = addToUserPalette(userPalettes, paletteSel, it)
+                setUserPalettes(list)
+                state.primary = it; state.message = "Added to ${list[idx].name}"
+                paletteSel = PaletteSel.User(idx)
                 dialog = EditorDialog.NONE
             },
         )
@@ -272,20 +357,28 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
             onResize = { w, h, a -> state.resizeCanvas(w, h, a); viewport.fitRequest++; dialog = EditorDialog.NONE },
             onScale = { w, h -> state.scaleSprite(w, h); viewport.fitRequest++; dialog = EditorDialog.NONE },
         )
-        EditorDialog.EXPORT -> ExportDialog(state.width, state.height, state.frameCount, onDismiss = { dialog = EditorDialog.NONE }) { kind, scale, cols, share ->
+        EditorDialog.EXPORT -> ExportDialog(state.width, state.height, state.frameCount, state.sprite.layers.size, onDismiss = { dialog = EditorDialog.NONE }) { o, target ->
             dialog = EditorDialog.NONE
-            val snapshot = state.sprite.deepCopy()
-            val frame = state.currentFrame
-            scope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        if (share) { Exporter.share(ctx, snapshot, state.name, kind, frame, scale, cols); null }
-                        else Exporter.saveToGallery(ctx, snapshot, state.name, kind, frame, scale, cols)
+            val opts = ExportOptions(o.kind, o.scale, o.columns, state.currentFrame, o.perLayer)
+            if (target == ExportTarget.FILES) {
+                pendingSave = opts
+                saveLauncher.launch(Exporter.fileName(state.name, o.kind))
+            } else {
+                val snapshot = state.sprite.deepCopy(); val name = state.name
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            if (target == ExportTarget.SHARE) { Exporter.share(ctx, snapshot, name, opts); null }
+                            else Exporter.saveToGallery(ctx, snapshot, name, opts)
+                        }
                     }
+                    result.onSuccess { where -> if (where != null) state.message = "Saved to $where" }
+                        .onFailure { state.message = "Export failed: ${it.message}" }
                 }
-                result.onSuccess { where -> if (where != null) state.message = "Saved to $where" }
-                    .onFailure { state.message = "Export failed: ${it.message}" }
             }
+        }
+        EditorDialog.GRID -> GridDialog(state.sprite.grid, state.showGrid, onDismiss = { dialog = EditorDialog.NONE }) { g, show ->
+            state.setGrid(g); state.showGrid = show; dialog = EditorDialog.NONE
         }
         EditorDialog.RENAME_SPRITE -> RenameDialog("Rename sprite", state.name, { dialog = EditorDialog.NONE }) {
             state.name = it; dialog = EditorDialog.NONE
@@ -296,6 +389,15 @@ fun EditorScreen(state: EditorState, onBack: () -> Unit) {
         }
         EditorDialog.HELP -> HelpDialog { dialog = EditorDialog.NONE }
         EditorDialog.NONE -> {}
+    }
+
+    pendingImport?.let { img ->
+        ImportImageDialog(img.name, img.width, img.height, asLayer = true, onDismiss = { pendingImport = null }) { fw, fh ->
+            pendingImport = null
+            val frames = if (fw == img.width && fh == img.height) listOf(img.pixels) else SheetFormat.slice(img.pixels, img.width, img.height, fw, fh)
+            state.importLayerFrames(frames, fw, fh, img.name)
+            state.message = if (frames.size > 1) "Imported ${frames.size} frames as a new layer" else "Imported as a new layer"
+        }
     }
 }
 
@@ -336,11 +438,10 @@ private fun Dock(tab: PanelTab?, state: EditorState, onTab: (PanelTab) -> Unit) 
 }
 
 @Composable
-private fun OptionsBar(state: EditorState, onOpenPicker: () -> Unit) {
+private fun OptionsBar(state: EditorState, leftHanded: Boolean, onOpenPicker: () -> Unit) {
     val t = state.tool
-    Row(Modifier.fillMaxWidth().height(64.dp).padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        ColorStack(state, onOpenPicker)
-        Spacer(Modifier.width(8.dp))
+    Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (!leftHanded) { ColorStack(state, onOpenPicker); Spacer(Modifier.width(8.dp)) }
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (t.usesSize) {
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
@@ -359,8 +460,8 @@ private fun OptionsBar(state: EditorState, onOpenPicker: () -> Unit) {
                 ToggleChip("Darken", !state.lighten) { state.lighten = false }
             }
             if (t.usesMirror) {
-                ToggleChip("Mirror ↔", state.mirrorX) { state.mirrorX = !state.mirrorX }
-                ToggleChip("Mirror ↕", state.mirrorY) { state.mirrorY = !state.mirrorY }
+                ToggleChip("Mirror X", state.mirrorX) { state.mirrorX = !state.mirrorX }
+                ToggleChip("Mirror Y", state.mirrorY) { state.mirrorY = !state.mirrorY }
             }
             if (t == Tool.MOVE) Text(if (state.selection != null) "Moving selection" else "Moving whole layer", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (t.isSelection && state.selection == null) {
@@ -371,6 +472,7 @@ private fun OptionsBar(state: EditorState, onOpenPicker: () -> Unit) {
             if (t == Tool.PICKER) Text("Tip: long-press works with any tool", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(8.dp))
         }
+        if (leftHanded) { Spacer(Modifier.width(8.dp)); ColorStack(state, onOpenPicker) }
     }
 }
 
@@ -386,8 +488,8 @@ private fun SelectionBar(state: EditorState) {
         ActionButton(Icons.Filled.ContentPaste, "Paste", state.hasClipboard) { state.paste() }
         ActionButton(Icons.Filled.Delete, "Erase", has) { state.deleteSelected() }
         ActionButton(Icons.Filled.FormatColorFill, "Fill", has) { state.fillSelection() }
-        ActionButton(Icons.Filled.Flip, "Flip ↔", has) { state.flipSelection(true) }
-        ActionButton(Icons.Filled.SwapHoriz, "Flip ↕", has) { state.flipSelection(false) }
+        ActionButton(Icons.Filled.Flip, "Flip H", has) { state.flipSelection(true) }
+        ActionButton(Icons.Filled.SwapVert, "Flip V", has) { state.flipSelection(false) }
         ActionButton(Icons.Filled.Rotate90DegreesCw, "Rotate", has) { state.rotateSelection() }
         ActionButton(Icons.Filled.BorderOuter, "Outline", has) { state.outline() }
         ActionButton(Icons.Filled.SelectAll, "Invert", has) { state.invertSelection() }
@@ -398,7 +500,7 @@ private fun SelectionBar(state: EditorState) {
 @Composable
 private fun EditorMenu(
     state: EditorState, expanded: Boolean, onDismiss: () -> Unit,
-    onResize: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, onFit: () -> Unit, onHelp: () -> Unit,
+    onResize: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, onGrid: () -> Unit, onFit: () -> Unit, onHelp: () -> Unit,
 ) {
     @Composable
     fun item(label: String, icon: ImageVector? = null, checked: Boolean? = null, action: () -> Unit) = DropdownMenuItem(
@@ -409,10 +511,11 @@ private fun EditorMenu(
     )
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         item("Export / share…", Icons.Filled.FileDownload) { onExport() }
-        item("Import image as layer", Icons.Filled.AddPhotoAlternate) { onImport() }
+        item("Import file as layer", Icons.Filled.AddPhotoAlternate) { onImport() }
         HorizontalDivider()
         item("Precision cursor", checked = state.precisionMode) { state.precisionMode = !state.precisionMode }
-        item("Pixel grid", checked = state.showGrid) { state.showGrid = !state.showGrid }
+        item("Show grid", checked = state.showGrid) { state.showGrid = !state.showGrid }
+        item("Grid settings…", Icons.Filled.GridOn) { onGrid() }
         item("Tile preview", checked = state.tileMode) { state.tileMode = !state.tileMode }
         item("Onion skin", checked = state.onionSkin) { state.onionSkin = !state.onionSkin }
         item("Animation preview", checked = state.showPreview) { state.showPreview = !state.showPreview }
@@ -426,6 +529,8 @@ private fun EditorMenu(
         item("Replace primary → secondary", Icons.Filled.Brush) {
             state.replaceColorEverywhere(state.primary, state.secondary)
         }
+        item("Crop to selection", Icons.Filled.Crop) { state.cropToSelection(); onFit() }
+        item("Trim empty borders", Icons.Filled.CropFree) { state.trimToContent(); onFit() }
         item("Clear this cel", Icons.Filled.Delete) { state.clearCel() }
         HorizontalDivider()
         item("Gestures & tips", Icons.Filled.Help) { onHelp() }
@@ -471,13 +576,13 @@ private fun AnimationPreview(state: EditorState, modifier: Modifier) {
     val scratch = remember(w, h) { IntArray(w * h) }
     Box(
         modifier.size(if (big) 150.dp else 76.dp).shadow(6.dp, RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF101015)).border(1.dp, Color(0x55FFFFFF), RoundedCornerShape(10.dp))
+            .background(LocalPixExtras.current.canvasBg).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
             .clickable { big = !big }.padding(4.dp)
     ) {
         Canvas(Modifier.matchParentSize()) {
             state.version
             val n = state.frameCount
-            if (n == 0) return@Canvas
+            if (n == 0 || state.sprite.width != w || state.sprite.height != h) return@Canvas
             buf.update(state.sprite.composite(frame % n, scratch))
             val k = minOf(size.width / w, size.height / h)
             val dw = (w * k).toInt(); val dh = (h * k).toInt()

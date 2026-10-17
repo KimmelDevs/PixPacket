@@ -735,6 +735,76 @@ class EditorState(val projectId: String, initial: Sprite, name: String) {
 
     // endregion
 
+    // region Grid & extra operations
+
+    fun setGrid(g: com.kimmeldevs.pixpacket.model.GridSettings) { sprite.grid = g; version++; dirty = true }
+
+    fun reverseFrames() {
+        if (frameCount < 2) return
+        structural {
+            for (l in sprite.layers) l.cels.reverse()
+            currentFrame = frameCount - 1 - currentFrame
+        }
+    }
+
+    /** Shows only layer [i]; if it is already soloed, shows every layer again. */
+    fun soloLayer(i: Int) = structural {
+        val soloed = sprite.layers.withIndex().all { (j, l) -> l.visible == (j == i) }
+        sprite.layers.forEachIndexed { j, l -> l.visible = soloed || j == i }
+    }
+
+    fun clearLayerAllFrames() = structural { layer.cels.forEach { it.fill(0) } }
+
+    fun cropToSelection() {
+        val sel = selection ?: run { message = "Make a selection first"; return }
+        val b = Raster.bounds(sel, width, height) ?: return
+        cropTo(b[0], b[1], b[2] - b[0] + 1, b[3] - b[1] + 1)
+    }
+
+    /** Crops away fully transparent borders across all layers and frames. */
+    fun trimToContent() {
+        var l = width; var t = height; var r = -1; var b = -1
+        for (layer in sprite.layers) for (c in layer.cels) for (y in 0 until height) for (x in 0 until width) if (c[y * width + x] != 0) {
+            if (x < l) l = x; if (x > r) r = x; if (y < t) t = y; if (y > b) b = y
+        }
+        if (r < 0) { message = "Nothing to trim — the sprite is empty"; return }
+        if (l == 0 && t == 0 && r == width - 1 && b == height - 1) { message = "Already trimmed"; return }
+        cropTo(l, t, r - l + 1, b - t + 1)
+    }
+
+    private fun cropTo(x: Int, y: Int, nw: Int, nh: Int) = structural {
+        val w = width; val h = height
+        for (l in sprite.layers) for (f in l.cels.indices) l.cels[f] = Raster.resizeCanvas(l.cels[f], w, h, nw, nh, -x, -y)
+        sprite.width = nw; sprite.height = nh
+        selection = null
+    }
+
+    /**
+     * Adds imported frames as a new layer starting at the current frame, adding frames to the sprite if needed.
+     * Larger images are scaled down (nearest neighbour) to fit; smaller ones are centered.
+     */
+    fun importLayerFrames(frames: List<IntArray>, iw: Int, ih: Int, layerName: String) = structural {
+        val w = width; val h = height
+        val needed = currentFrame + frames.size
+        while (sprite.frameCount < needed) for (l in sprite.layers) l.cels.add(sprite.newCel())
+        val cels = MutableList(sprite.frameCount) { sprite.newCel() }
+        frames.forEachIndexed { i, px -> fitInto(px, iw, ih, w, h).copyInto(cels[currentFrame + i]) }
+        sprite.layers.add(currentLayer + 1, Layer(layerName, cels))
+        currentLayer++
+    }
+
+    private fun fitInto(px: IntArray, iw: Int, ih: Int, w: Int, h: Int): IntArray {
+        var src = px; var sw = iw; var sh = ih
+        if (iw > w || ih > h) {
+            val k = minOf(w.toFloat() / iw, h.toFloat() / ih)
+            sw = (iw * k).toInt().coerceAtLeast(1); sh = (ih * k).toInt().coerceAtLeast(1)
+            src = Raster.scale(px, iw, ih, sw, sh)
+        }
+        return Raster.resizeCanvas(src, sw, sh, w, h, (w - sw) / 2, (h - sh) / 2)
+    }
+
+    // endregion
+
     // region Whole-sprite transforms
 
     fun flipSprite(horizontal: Boolean) = structural {
@@ -766,14 +836,6 @@ class EditorState(val projectId: String, initial: Sprite, name: String) {
         for (l in sprite.layers) for (f in l.cels.indices) l.cels[f] = Raster.scale(l.cels[f], w, h, nw, nh)
         sprite.width = nw; sprite.height = nh
         selection = null
-    }
-
-    /** Adds an imported image (already sized to the sprite) as a new layer on the current frame. */
-    fun importAsLayer(pixels: IntArray, layerName: String) = structural {
-        val cels = MutableList(frameCount) { sprite.newCel() }
-        pixels.copyInto(cels[currentFrame])
-        sprite.layers.add(currentLayer + 1, Layer(layerName, cels))
-        currentLayer++
     }
 
     // endregion

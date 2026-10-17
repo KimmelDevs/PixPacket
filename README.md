@@ -46,24 +46,41 @@ Frames: add, duplicate, delete, reorder. Play/pause, FPS 1–30, onion skin, flo
 (tap to enlarge), tile preview mode.
 
 ### Layers
-Add, duplicate, delete, move up/down, merge down, rename, show/hide, lock, opacity.
+Compact rows with visibility, lock and a ⋮ menu; the selected layer shows its opacity slider inline.
+Add, duplicate, delete, move up/down, merge down, rename (double-tap), solo, clear, show/hide, lock, opacity.
 
 ### Colors
 Primary/secondary colors with swap. HSV picker with alpha and hex input. Recent colors.
 Preset palettes: Default, PICO-8, DB16, Endesga 32, Game Boy, NES, Grayscale, Skin & Hair.
-"My palette" is saved between sessions. "Sprite colors" lists the colors used in the sprite.
+Make as many of your own palettes as you like, with any number of colors: create, rename, duplicate
+(including presets), sort by hue, delete, or build one from the sprite's colors. Palettes show 16 colors
+per page; swipe for more. "Sprite colors" lists the colors used in the sprite.
 Replace a color across the whole sprite.
 
 ### Canvas & sprite
-Resize canvas with a 3×3 anchor, scale the art (nearest neighbour), flip, rotate 90°, outline,
-clear cel, pixel grid (major line every 8 px), fit to screen.
+Resize canvas with a 3×3 anchor, scale the art (nearest neighbour), crop to selection, trim empty borders,
+flip, rotate 90°, outline, clear cel, fit to screen.
+Grid settings per sprite: pixel lines, tile grid of any size (separate width/height), offset, and line color.
 
 ### Files
-- Gallery of sprites with thumbnails, plus rename, duplicate and delete
+- Gallery with folders, sorting, rename, duplicate and move-to-folder
+- Recently deleted: deleted sprites can be restored for 30 days
 - Autosave (a few seconds after edits, and when the app goes to the background)
-- Export a PNG (current frame), sprite sheet PNG (row or grid) or animated GIF, scaled 1×–32×,
-  to `Pictures/PixPacket` or through the share sheet
-- Import an image as a new layer
+- Open/import: PNG/JPG (as one image or sliced as a sprite sheet), animated GIF, `.aseprite`/`.ase`,
+  `.piskel` and PixPacket `.pxp`, either as a new sprite or as a layer in the current one
+- Export: PNG, animated GIF, sprite sheet, ZIP of PNG frames (optionally per layer), `.aseprite`,
+  `.piskel`, `.pxp` backup; scaled 1×–32×; save to Gallery, to Files, or share
+
+### Settings
+Light / dark / system theme, 7 accent colors, checkerboard size, haptics, finger-tap undo/redo,
+long-press eyedropper, left-handed layout, auto-hide tools, keep screen on, defaults for new sprites.
+
+### Landscape
+In landscape the canvas fills one side and the tools sit in a side column (on the left in left-handed mode).
+
+## Google Play assets
+`playstore/` contains framed 1080×1920 screenshots (`phone/`), plain 2:1 screenshots (`plain/`),
+a 1024×500 feature graphic and a 512×512 icon.
 
 ## Build
 

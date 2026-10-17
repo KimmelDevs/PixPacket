@@ -11,16 +11,28 @@ class Layer(
     fun deepCopy(): Layer = Layer(name, cels.map { it.copyOf() }.toMutableList(), visible, locked, opacity)
 }
 
+/** Grid overlay settings, stored with each sprite. Color: 0 = dark, 1 = light, 2 = accent. */
+data class GridSettings(
+    val pixelLines: Boolean = true,
+    val tileLines: Boolean = true,
+    val tileWidth: Int = 8,
+    val tileHeight: Int = 8,
+    val color: Int = 0,
+    val offsetX: Int = 0,
+    val offsetY: Int = 0,
+)
+
 /** The whole document: a stack of layers sharing the same frame count. Index 0 is the bottom layer. */
 class Sprite(
     var width: Int,
     var height: Int,
     val layers: MutableList<Layer>,
     var fps: Int = 8,
+    var grid: GridSettings = GridSettings(),
 ) {
     val frameCount: Int get() = layers.firstOrNull()?.cels?.size ?: 0
 
-    fun deepCopy(): Sprite = Sprite(width, height, layers.map { it.deepCopy() }.toMutableList(), fps)
+    fun deepCopy(): Sprite = Sprite(width, height, layers.map { it.deepCopy() }.toMutableList(), fps, grid)
 
     fun newCel() = IntArray(width * height)
 
@@ -41,10 +53,15 @@ class Sprite(
     }
 
     companion object {
-        fun blank(width: Int, height: Int, background: Int = 0): Sprite {
+        fun blank(width: Int, height: Int, background: Int = 0, fps: Int = 8, tile: Int = 8): Sprite {
             val cel = IntArray(width * height) { background }
-            return Sprite(width, height, mutableListOf(Layer("Layer 1", mutableListOf(cel))))
+            return Sprite(width, height, mutableListOf(Layer("Layer 1", mutableListOf(cel))), fps,
+                GridSettings(tileWidth = tile, tileHeight = tile))
         }
+
+        /** Builds a one-layer sprite from already-composited frames. */
+        fun fromFrames(width: Int, height: Int, frames: List<IntArray>, fps: Int = 8, layerName: String = "Layer 1") =
+            Sprite(width, height, mutableListOf(Layer(layerName, frames.map { it.copyOf() }.toMutableList())), fps)
 
         /** Source-over blend of [src] (scaled by [opacity]) onto [dst]. */
         fun blend(dst: Int, src: Int, opacity: Float = 1f): Int {

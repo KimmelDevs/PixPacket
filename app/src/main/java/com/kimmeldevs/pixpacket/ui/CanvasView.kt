@@ -35,7 +35,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.kimmeldevs.pixpacket.editor.EditorState
 import com.kimmeldevs.pixpacket.editor.Tool
-import com.kimmeldevs.pixpacket.ui.theme.CanvasBg
+import androidx.compose.material3.MaterialTheme
+import com.kimmeldevs.pixpacket.model.GridSettings
+import com.kimmeldevs.pixpacket.settings.LocalSettings
+import com.kimmeldevs.pixpacket.ui.theme.LocalPixExtras
 import com.kimmeldevs.pixpacket.ui.theme.CheckerDark
 import com.kimmeldevs.pixpacket.ui.theme.CheckerLight
 import kotlin.math.floor
@@ -85,8 +88,8 @@ class PixelBuffer(val w: Int, val h: Int) {
 fun DrawScope.drawPixels(buf: PixelBuffer, dst: IntOffset, dstSize: IntSize, alpha: Float = 1f) =
     drawImage(buf.image, IntOffset.Zero, IntSize(buf.w, buf.h), dst, dstSize, alpha = alpha, filterQuality = FilterQuality.None)
 
-fun checkerPixels(w: Int, h: Int): IntArray {
-    val cell = max(1, max(w, h) / 8)
+fun checkerPixels(w: Int, h: Int, cellsAcross: Int = 8): IntArray {
+    val cell = max(1, max(w, h) / cellsAcross)
     val a = CheckerLight.toArgb(); val b = CheckerDark.toArgb()
     return IntArray(w * h) { i -> if (((i % w) / cell + (i / w) / cell) % 2 == 0) a else b }
 }
@@ -94,11 +97,15 @@ fun checkerPixels(w: Int, h: Int): IntArray {
 @Composable
 fun PixelCanvas(state: EditorState, viewport: Viewport, modifier: Modifier = Modifier) {
     val haptics = LocalHapticFeedback.current
+    val settings = LocalSettings.current
+    val extras = LocalPixExtras.current
+    val accent = MaterialTheme.colorScheme.primary
+    val cells = settings.checker.cellsAcross
     val w = state.width; val h = state.height
     val main = remember(w, h) { PixelBuffer(w, h) }
     val onionPrev = remember(w, h) { PixelBuffer(w, h) }
     val onionNext = remember(w, h) { PixelBuffer(w, h) }
-    val checker = remember(w, h) { PixelBuffer(w, h).also { it.update(checkerPixels(w, h)) } }
+    val checker = remember(w, h, cells) { PixelBuffer(w, h).also { it.update(checkerPixels(w, h, cells)) } }
     val scratch = remember(w, h) { IntArray(w * h) }
 
     // Marching-ants outline of the selection, rebuilt when the selection changes.
@@ -108,13 +115,16 @@ fun PixelCanvas(state: EditorState, viewport: Viewport, modifier: Modifier = Mod
     Canvas(
         modifier
             .fillMaxSize()
-            .background(CanvasBg)
-            .pointerInput(state, viewport) { canvasGestures(state, viewport) { haptics.performHapticFeedback(it) } }
+            .background(extras.canvasBg)
+            .pointerInput(state, viewport, settings.gestureUndo, settings.longPressPick) {
+                canvasGestures(state, viewport, settings.gestureUndo, settings.longPressPick) { haptics.performHapticFeedback(it) }
+            }
     ) {
         viewport.size = IntSize(size.width.toInt(), size.height.toInt())
         viewport.ensureFitted(w, h)
         state.version // observe edits
-        val frame = state.currentFrame
+        if (state.sprite.width != w || state.sprite.height != h) return@Canvas // resized; recomposing
+        val frame = state.currentFrame.coerceIn(0, state.sprite.frameCount - 1)
         val s = viewport.scale
         val o = viewport.offset
         val dstSize = IntSize((w * s).toInt().coerceAtLeast(1), (h * s).toInt().coerceAtLeast(1))
@@ -144,10 +154,10 @@ fun PixelCanvas(state: EditorState, viewport: Viewport, modifier: Modifier = Mod
         }
         drawPixels(main, dst, dstSize)
 
-        if (state.showGrid && s >= 7f) drawGrid(w, h, s, o)
+        if (state.showGrid) drawGrid(state.sprite.grid, w, h, s, o, accent)
 
         // Sprite border
-        drawRect(Color.White.copy(alpha = 0.25f), Offset(dst.x.toFloat(), dst.y.toFloat()),
+        drawRect((if (extras.isDark) Color.White else Color.Black).copy(alpha = 0.25f), Offset(dst.x.toFloat(), dst.y.toFloat()),
             Size(dstSize.width.toFloat(), dstSize.height.toFloat()), style = Stroke(1f))
 
         if (selPath != null) {
@@ -190,18 +200,27 @@ fun PixelCanvas(state: EditorState, viewport: Viewport, modifier: Modifier = Mod
     }
 }
 
-private fun DrawScope.drawGrid(w: Int, h: Int, s: Float, o: Offset) {
-    val minor = Color.Black.copy(alpha = 0.16f)
-    val major = Color.Black.copy(alpha = 0.38f)
+private fun DrawScope.drawGrid(g: GridSettings, w: Int, h: Int, s: Float, o: Offset, accent: Color) {
+    val base = when (g.color) { 1 -> Color.White; 2 -> accent; else -> Color.Black }
+    val minor = base.copy(alpha = if (g.color == 0) 0.16f else 0.22f)
+    val major = base.copy(alpha = if (g.color == 0) 0.45f else 0.6f)
     val left = max(0, floor(-o.x / s).toInt()); val right = min(w, ((size.width - o.x) / s + 1f).toInt())
     val top = max(0, floor(-o.y / s).toInt()); val bottom = min(h, ((size.height - o.y) / s + 1f).toInt())
-    for (x in left..right) {
-        val sx = o.x + x * s
-        drawLine(if (x % 8 == 0) major else minor, Offset(sx, o.y + top * s), Offset(sx, o.y + bottom * s), 1f)
+    val y0 = o.y + top * s; val y1 = o.y + bottom * s
+    val x0 = o.x + left * s; val x1 = o.x + right * s
+    // Pixel lines only once pixels are big enough to separate.
+    if (g.pixelLines && s >= 7f) {
+        for (x in left..right) drawLine(minor, Offset(o.x + x * s, y0), Offset(o.x + x * s, y1), 1f)
+        for (y in top..bottom) drawLine(minor, Offset(x0, o.y + y * s), Offset(x1, o.y + y * s), 1f)
     }
-    for (y in top..bottom) {
-        val sy = o.y + y * s
-        drawLine(if (y % 8 == 0) major else minor, Offset(o.x + left * s, sy), Offset(o.x + right * s, sy), 1f)
+    if (g.tileLines && g.tileWidth > 0 && g.tileHeight > 0) {
+        val tw = g.tileWidth; val th = g.tileHeight
+        if (tw * s >= 4f) for (x in left..right) if (Math.floorMod(x - g.offsetX, tw) == 0) {
+            drawLine(major, Offset(o.x + x * s, y0), Offset(o.x + x * s, y1), 1.5f)
+        }
+        if (th * s >= 4f) for (y in top..bottom) if (Math.floorMod(y - g.offsetY, th) == 0) {
+            drawLine(major, Offset(x0, o.y + y * s), Offset(x1, o.y + y * s), 1.5f)
+        }
     }
 }
 
@@ -235,6 +254,8 @@ private const val TAP_MS = 280L
 private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.canvasGestures(
     state: EditorState,
     vp: Viewport,
+    gestureUndo: Boolean,
+    longPressPick: Boolean,
     haptic: (HapticFeedbackType) -> Unit,
 ) {
     val slop = viewConfiguration.touchSlop
@@ -264,7 +285,7 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.canvasGe
                 val ev = awaitPointerEvent()
                 val pressed = ev.changes.filter { it.pressed }
                 if (pressed.isEmpty()) {
-                    if (mode == Mode.Transform && maxPointers >= 2 && ev.changes.first().uptimeMillis - t0 < TAP_MS && travelled < slop * 2) {
+                    if (gestureUndo && mode == Mode.Transform && maxPointers >= 2 && ev.changes.first().uptimeMillis - t0 < TAP_MS && travelled < slop * 2) {
                         if (maxPointers == 2) state.undo() else state.redo()
                         haptic(HapticFeedbackType.LongPress)
                     }
@@ -295,7 +316,7 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.canvasGe
         while (true) {
             val timeout = when {
                 mode == Mode.Pending -> DRAW_DELAY_MS
-                mode == Mode.Draw && stillForLongPress -> max(1L, LONG_PRESS_MS - (System.currentTimeMillis() - strokeStart))
+                mode == Mode.Draw && stillForLongPress && longPressPick -> max(1L, LONG_PRESS_MS - (System.currentTimeMillis() - strokeStart))
                 else -> Long.MAX_VALUE
             }
             val ev = if (timeout == Long.MAX_VALUE) awaitPointerEvent() else withTimeoutOrNull(timeout) { awaitPointerEvent() }
@@ -329,7 +350,7 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.canvasGe
                     Mode.Draw -> state.endStroke()
                     Mode.Transform -> {
                         val dt = ev.changes.first().uptimeMillis - t0
-                        if (maxPointers >= 2 && dt < TAP_MS && travelled < slop * 2) {
+                        if (gestureUndo && maxPointers >= 2 && dt < TAP_MS && travelled < slop * 2) {
                             if (maxPointers == 2) state.undo() else state.redo()
                             haptic(HapticFeedbackType.LongPress)
                         }

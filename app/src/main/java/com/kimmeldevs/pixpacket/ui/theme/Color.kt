@@ -2,7 +2,7 @@ package com.kimmeldevs.pixpacket.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Accent = Color(0xFFB79CFF)
+val AccentViolet = Color(0xFFB79CFF)
 val Teal = Color(0xFF5FE0CF)
 val Bg = Color(0xFF15151C)
 val Surface = Color(0xFF22212B)
