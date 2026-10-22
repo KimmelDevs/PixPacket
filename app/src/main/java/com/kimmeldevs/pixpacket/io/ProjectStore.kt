@@ -27,6 +27,7 @@ class ProjectInfo(
 object ProjectStore {
     private const val MAGIC_V1 = 0x50585031 // "PXP1"
     private const val MAGIC_V2 = 0x50585032 // "PXP2": adds grid settings
+    private const val MAGIC_V3 = 0x50585033 // "PXP3": adds isometric grid flag
 
     private fun dir(ctx: Context) = File(ctx.filesDir, "projects").apply { mkdirs() }
     private fun file(ctx: Context, id: String) = File(dir(ctx), "$id.pxp")
@@ -42,12 +43,13 @@ object ProjectStore {
     /** Writes the .pxp format (also used for "PixPacket project" export). */
     fun write(out: OutputStream, name: String, s: Sprite) {
         DataOutputStream(GZIPOutputStream(out.buffered())).use { o ->
-            o.writeInt(MAGIC_V2)
+            o.writeInt(MAGIC_V3)
             o.writeUTF(name)
             o.writeInt(s.width); o.writeInt(s.height); o.writeInt(s.fps)
             val g = s.grid
             o.writeBoolean(g.pixelLines); o.writeBoolean(g.tileLines)
             o.writeInt(g.tileWidth); o.writeInt(g.tileHeight); o.writeInt(g.color); o.writeInt(g.offsetX); o.writeInt(g.offsetY)
+            o.writeBoolean(g.iso)
             o.writeInt(s.frameCount); o.writeInt(s.layers.size)
             for (l in s.layers) {
                 o.writeUTF(l.name); o.writeBoolean(l.visible); o.writeBoolean(l.locked); o.writeFloat(l.opacity)
@@ -60,11 +62,12 @@ object ProjectStore {
     fun read(input: InputStream): Pair<String, Sprite>? = try {
         DataInputStream(GZIPInputStream(input.buffered())).use { i ->
             val magic = i.readInt()
-            require(magic == MAGIC_V1 || magic == MAGIC_V2)
+            require(magic == MAGIC_V1 || magic == MAGIC_V2 || magic == MAGIC_V3)
             val name = i.readUTF()
             val w = i.readInt(); val h = i.readInt(); val fps = i.readInt()
-            val grid = if (magic == MAGIC_V2) GridSettings(
+            val grid = if (magic != MAGIC_V1) GridSettings(
                 i.readBoolean(), i.readBoolean(), i.readInt(), i.readInt(), i.readInt(), i.readInt(), i.readInt(),
+                iso = magic == MAGIC_V3 && i.readBoolean(),
             ) else GridSettings()
             val frames = i.readInt(); val layerCount = i.readInt()
             val layers = MutableList(layerCount) {
@@ -89,10 +92,11 @@ object ProjectStore {
     private fun info(f: File, thumbDir: File, folder: String?, deletedAt: Long): ProjectInfo? = try {
         DataInputStream(GZIPInputStream(f.inputStream().buffered())).use { i ->
             val magic = i.readInt()
-            if (magic != MAGIC_V1 && magic != MAGIC_V2) return null
+            if (magic != MAGIC_V1 && magic != MAGIC_V2 && magic != MAGIC_V3) return null
             val name = i.readUTF()
             val w = i.readInt(); val h = i.readInt(); i.readInt()
-            if (magic == MAGIC_V2) { i.readBoolean(); i.readBoolean(); repeat(5) { i.readInt() } }
+            if (magic != MAGIC_V1) { i.readBoolean(); i.readBoolean(); repeat(5) { i.readInt() } }
+            if (magic == MAGIC_V3) i.readBoolean()
             val frames = i.readInt()
             val id = f.nameWithoutExtension
             val thumb = File(thumbDir, "$id.png").takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.path) }

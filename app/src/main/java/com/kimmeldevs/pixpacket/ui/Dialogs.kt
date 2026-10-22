@@ -263,7 +263,8 @@ fun GridDialog(initial: GridSettings, visible: Boolean, onDismiss: () -> Unit, o
     var ox by remember { mutableStateOf("${initial.offsetX}") }
     var oy by remember { mutableStateOf("${initial.offsetY}") }
     var color by remember { mutableIntStateOf(initial.color) }
-    var linked by remember { mutableStateOf(initial.tileWidth == initial.tileHeight) }
+    var linked by remember { mutableStateOf(initial.tileWidth == initial.tileHeight && !initial.iso) }
+    var iso by remember { mutableStateOf(initial.iso) }
     val twi = tw.toIntOrNull() ?: 0; val thi = th.toIntOrNull() ?: 0
     val valid = twi in 1..512 && thi in 1..512
     AlertDialog(
@@ -285,8 +286,17 @@ fun GridDialog(initial: GridSettings, visible: Boolean, onDismiss: () -> Unit, o
                     Switch(tile, { tile = it })
                 }
                 if (tile) {
+                    // Square tiles, or isometric diamonds (2:1 by default) for iso pixel art.
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        SegmentedButton(!iso, { iso = false }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("Square") }
+                        SegmentedButton(iso, {
+                            if (!iso) { iso = true; linked = false; th = "${(twi / 2).coerceAtLeast(1)}" }
+                        }, SegmentedButtonDefaults.itemShape(1, 2)) { Text("Isometric") }
+                    }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(4, 8, 16, 32, 64).forEach { n ->
+                        if (iso) listOf(8, 16, 32, 64).forEach { n ->
+                            FilterChip(twi == n && thi == n / 2, { tw = "$n"; th = "${n / 2}" }, { Text("$n×${n / 2}") })
+                        } else listOf(4, 8, 16, 32, 64).forEach { n ->
                             FilterChip(twi == n && thi == n, { tw = "$n"; th = "$n"; linked = true }, { Text("$n") })
                         }
                     }
@@ -295,7 +305,7 @@ fun GridDialog(initial: GridSettings, visible: Boolean, onDismiss: () -> Unit, o
                         Text("×")
                         NumberField("Height", th, Modifier.weight(1f)) { th = it; if (linked) tw = it }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) { Text("Square tiles", Modifier.weight(1f)); Switch(linked, { linked = it; if (it) th = tw }) }
+                    if (!iso) Row(verticalAlignment = Alignment.CenterVertically) { Text("Square tiles", Modifier.weight(1f)); Switch(linked, { linked = it; if (it) th = tw }) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         NumberField("Offset X", ox, Modifier.weight(1f)) { ox = it }
                         NumberField("Offset Y", oy, Modifier.weight(1f)) { oy = it }
@@ -312,7 +322,7 @@ fun GridDialog(initial: GridSettings, visible: Boolean, onDismiss: () -> Unit, o
         },
         confirmButton = {
             TextButton(enabled = valid, onClick = {
-                onApply(GridSettings(pixel, tile, twi, thi, color, ox.toIntOrNull() ?: 0, oy.toIntOrNull() ?: 0), show)
+                onApply(GridSettings(pixel, tile, twi, thi, color, ox.toIntOrNull() ?: 0, oy.toIntOrNull() ?: 0, iso), show)
             }) { Text("Apply") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

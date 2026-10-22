@@ -41,6 +41,7 @@ import com.kimmeldevs.pixpacket.settings.LocalSettings
 import com.kimmeldevs.pixpacket.ui.theme.LocalPixExtras
 import com.kimmeldevs.pixpacket.ui.theme.CheckerDark
 import com.kimmeldevs.pixpacket.ui.theme.CheckerLight
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
@@ -238,7 +239,9 @@ private fun DrawScope.drawGrid(g: GridSettings, w: Int, h: Int, s: Float, o: Off
         for (x in left..right) drawLine(minor, Offset(o.x + x * s, y0), Offset(o.x + x * s, y1), 1f)
         for (y in top..bottom) drawLine(minor, Offset(x0, o.y + y * s), Offset(x1, o.y + y * s), 1f)
     }
-    if (g.tileLines && g.tileWidth > 0 && g.tileHeight > 0) {
+    if (g.tileLines && g.iso && g.tileWidth > 0 && g.tileHeight > 0) {
+        drawIsoGrid(g, w, h, s, o, major)
+    } else if (g.tileLines && g.tileWidth > 0 && g.tileHeight > 0) {
         val tw = g.tileWidth; val th = g.tileHeight
         if (tw * s >= 4f) for (x in left..right) if (Math.floorMod(x - g.offsetX, tw) == 0) {
             drawLine(major, Offset(o.x + x * s, y0), Offset(o.x + x * s, y1), 1.5f)
@@ -246,6 +249,36 @@ private fun DrawScope.drawGrid(g: GridSettings, w: Int, h: Int, s: Float, o: Off
         if (th * s >= 4f) for (y in top..bottom) if (Math.floorMod(y - g.offsetY, th) == 0) {
             drawLine(major, Offset(x0, o.y + y * s), Offset(x1, o.y + y * s), 1.5f)
         }
+    }
+}
+
+/**
+ * Isometric tile grid: two families of diagonal lines (slope ±tileHeight/tileWidth) forming diamonds
+ * tileWidth wide and tileHeight tall, anchored at the grid offset and clipped to the sprite.
+ */
+private fun DrawScope.drawIsoGrid(g: GridSettings, w: Int, h: Int, s: Float, o: Offset, color: Color) {
+    val tw = g.tileWidth.toFloat(); val th = g.tileHeight.toFloat()
+    if (th * s < 4f) return
+    val m = th / tw
+    fun seg(xa: Float, ya: Float, xb: Float, yb: Float) =
+        drawLine(color, Offset(o.x + xa * s, o.y + ya * s), Offset(o.x + xb * s, o.y + yb * s), 1.5f)
+    // Lines through (offsetX, offsetY + th/2 + k*th) in both directions: y = ±m(x - offsetX) + c.
+    val base = g.offsetY + th / 2f
+    // Rising edges (y grows with x): y = m x + c.
+    val cA0 = base - m * g.offsetX
+    val kA0 = floor((-m * w - cA0) / th).toInt(); val kA1 = ceil((h - cA0) / th).toInt()
+    for (k in kA0..kA1) {
+        val c = cA0 + k * th
+        val xa = max(0f, -c / m); val xb = min(w.toFloat(), (h - c) / m)
+        if (xa < xb) seg(xa, m * xa + c, xb, m * xb + c)
+    }
+    // Falling edges: y = c - m x.
+    val cB0 = base + m * g.offsetX
+    val kB0 = floor((0f - cB0) / th).toInt(); val kB1 = ceil((h + m * w - cB0) / th).toInt()
+    for (k in kB0..kB1) {
+        val c = cB0 + k * th
+        val xa = max(0f, (c - h) / m); val xb = min(w.toFloat(), c / m)
+        if (xa < xb) seg(xa, c - m * xa, xb, c - m * xb)
     }
 }
 

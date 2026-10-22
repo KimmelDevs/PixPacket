@@ -11,7 +11,10 @@ class Layer(
     fun deepCopy(): Layer = Layer(name, cels.map { it.copyOf() }.toMutableList(), visible, locked, opacity)
 }
 
-/** Grid overlay settings, stored with each sprite. Color: 0 = dark, 1 = light, 2 = accent. */
+/**
+ * Grid overlay settings, stored with each sprite. Color: 0 = dark, 1 = light, 2 = accent.
+ * When [iso] is on, the tile grid is drawn as isometric diamonds [tileWidth] wide and [tileHeight] tall.
+ */
 data class GridSettings(
     val pixelLines: Boolean = true,
     val tileLines: Boolean = true,
@@ -20,6 +23,7 @@ data class GridSettings(
     val color: Int = 0,
     val offsetX: Int = 0,
     val offsetY: Int = 0,
+    val iso: Boolean = false,
 )
 
 /** The whole document: a stack of layers sharing the same frame count. Index 0 is the bottom layer. */
